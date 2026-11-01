@@ -1,27 +1,29 @@
-
-from langgraph.graph import StateGraph, START, END
-from typing import TypedDict, Annotated
-from langgraph.graph.message import BaseMessage, add_messages
-from langchain_core.messages import SystemMessage
-
-from langchain_openai import ChatOpenAI
-from dotenv import load_dotenv
-
 import os
 import sqlite3
+from typing import TypedDict, Annotated
 
-# NEW: SQLite persistent checkpointer
+from dotenv import load_dotenv
+
+from langgraph.graph import StateGraph, START
+from langgraph.graph.message import add_messages
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.prebuilt import ToolNode, tools_condition
 
-from langgraph.prebuilt import ToolNode,tools_condition
+from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
 
+from rag_pipeline import search_documents, initialize_pdf
 
 # ==========================================
 # 1. LOAD ENVIRONMENT VARIABLES
 # ==========================================
 
 load_dotenv()
+
+# Build the PDF index only if it doesn't exist yet
+initialize_pdf()
 
 
 # ==========================================
@@ -33,88 +35,94 @@ llm = ChatOpenAI(
     base_url="https://ollama.com/v1",
     api_key=os.getenv("OLLAMA_API_KEY"),
     temperature=0,
-    streaming=True
+    streaming=True,
 )
+
 
 # ==========================================
 # 3. INITIALIZE TOOLS
 # ==========================================
 
+@tool
+def rag_tool(query: str) -> str:
+    """
+    Search the user's uploaded PDF documents and return the most
+    relevant passages with their page numbers. Use this first for
+    any question that could be answered by the documents.
+    """
+    docs = search_documents(query)
+
+    if not docs:
+        return "No relevant information found in the uploaded documents."
+
+    results = []
+    for doc in docs:
+        source = os.path.basename(doc.metadata.get("source", "Unknown"))
+        page = doc.metadata.get("page", "Unknown")
+        results.append(
+            f"Source: {source}\nPage: {page}\nContent:\n{doc.page_content}"
+        )
+
+    return "\n\n---\n\n".join(results)
+
+
 search_tool = TavilySearch(
     max_results=5,
     topic="general",
-    search_depth="basic"
+    search_depth="basic",
 )
 
-tools = [search_tool]
+tools = [rag_tool, search_tool]
 
-# Bind tools to the LLM
 llm_with_tools = llm.bind_tools(tools)
 
 
-
 # ==========================================
-# 3. DEFINE CHAT STATE
+# 4. DEFINE CHAT STATE
 # ==========================================
 
 class ChatState(TypedDict):
-
     messages: Annotated[list[BaseMessage], add_messages]
 
 
 # ==========================================
-# 4. CHATBOT NODE
+# 5. CHATBOT NODE
 # ==========================================
 
-def chat_node(state: ChatState) -> ChatState:
+SYSTEM_PROMPT = SystemMessage(
+    content="""
+You are an AI chatbot developed by Saurabh Yadav.
 
-    system_prompt = SystemMessage(
-        content="""
-        You are an AI chatbot developed by Saurabh Yadav.
+If anyone asks who built you, who created you, or who developed you,
+respond: "I was built by Saurabh Yadav."
+Do not claim that someone else built you.
 
-        If anyone asks who built you, who created you,
-        or who developed you, respond:
+You have two tools:
+- rag_tool: searches the user's uploaded PDF documents. Use it first
+  for any question that could relate to the documents.
+- tavily_search: searches the web. Use it only for current events or
+  topics clearly not covered by the documents.
 
-        "I was built by Saurabh Yadav."
-
-        Do not claim that someone else built you.
-
-        Answer other questions normally and helpfully.
-        """
-    )
-
-    messages = [system_prompt] + state["messages"]
-
-    response = llm_with_tools.invoke(messages)
-
-    return {
-        "messages": [response]
-    }
-
-# ==========================================
-# 5. SQLITE DATABASE CONNECTION
-# ==========================================
-
-# NEW: Create persistent SQLite connection
-
-conn = sqlite3.connect(
-    "chat_memory.db",
-    check_same_thread=False
+When you answer from a PDF, mention the source file and page number.
+If rag_tool finds nothing relevant, say so before using web search.
+For greetings and general chat, answer normally without tools.
+"""
 )
 
 
+def chat_node(state: ChatState) -> ChatState:
+    messages = [SYSTEM_PROMPT] + state["messages"]
+    response = llm_with_tools.invoke(messages)
+    return {"messages": [response]}
+
+
 # ==========================================
-# 6. INITIALIZE CHECKPOINTER
+# 6. SQLITE CHECKPOINTER
 # ==========================================
 
-# OLD:
-# from langgraph.checkpoint.memory import InMemorySaver
-# checkpoint = InMemorySaver()
+conn = sqlite3.connect("chat_memory.db", check_same_thread=False)
 
-# NEW:
 checkpoint = SqliteSaver(conn)
-
-# Create required checkpoint tables
 checkpoint.setup()
 
 
@@ -125,19 +133,10 @@ checkpoint.setup()
 graph = StateGraph(ChatState)
 
 graph.add_node("chat_node", chat_node)
-
-# NEW: Tool execution node
 graph.add_node("tools", ToolNode(tools))
 
-# Workflow edges
 graph.add_edge(START, "chat_node")
-
-# Decide whether to execute tools or finish
-graph.add_conditional_edges(
-    "chat_node",
-    tools_condition
-)
-
+graph.add_conditional_edges("chat_node", tools_condition)
 graph.add_edge("tools", "chat_node")
 
 
@@ -145,35 +144,31 @@ graph.add_edge("tools", "chat_node")
 # 8. COMPILE CHATBOT
 # ==========================================
 
-chatbot = graph.compile(
-    checkpointer=checkpoint
-)
+chatbot = graph.compile(checkpointer=checkpoint)
+
+
 # ==========================================
-# 9. DELETE LANGGRAPH CHECKPOINTS
+# 9. DELETE CHAT HISTORY
 # ==========================================
 
 def delete_chat_history(thread_id):
-
     checkpoint.delete_thread(thread_id)
+
+
+# ==========================================
+# 10. QUICK TEST
+# ==========================================
+
 if __name__ == "__main__":
+    config = {"configurable": {"thread_id": "test_pdf"}}
 
-    test_thread_id = "test_123"
-
-    config = {
-        "configurable": {
-            "thread_id": test_thread_id
-        }
-    }
-
-    chatbot.invoke(
-        {"messages": [{"role": "user", "content": "Hello"}]},
-        config=config
+    result = chatbot.invoke(
+        {"messages": [{"role": "user", "content": "your PDF-specific question here"}]},
+        config=config,
     )
 
-    print("Before deletion:")
-    print(chatbot.get_state(config).values)
+    for m in result["messages"]:
+        calls = getattr(m, "tool_calls", None)
+        print(type(m).__name__, "|", calls if calls else "", "|", str(m.content)[:150])
 
-    delete_chat_history(test_thread_id)
-
-    print("After deletion:")
-    print(chatbot.get_state(config).values)
+    delete_chat_history("test_pdf")

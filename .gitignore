@@ -1,4 +1,3 @@
-
 # Environment variables and API keys
 .env
 .env.*
@@ -43,7 +42,28 @@ dist/
 Thumbs.db
 desktop.ini
 
-#chatmemory files
+# Chat memory files
 chat_memory.db
 chat_memory.db-shm
 chat_memory.db-wal
+
+# Thread metadata database (check the real file name in thread_db.py)
+threads.db
+threads.db-shm
+threads.db-wal
+*.sqlite
+*.sqlite3
+
+# User uploads and upload registry
+uploads/
+indexed_files.json
+
+# Local test and debug scripts
+test_key.py
+test_embedding.py
+inspect_index.py
+chunks_dump.txt
+
+# fastembed model cache (re-downloaded automatically)
+.fastembed_cache/
+fastembed_cache/
