@@ -13,6 +13,9 @@ import sqlite3
 # NEW: SQLite persistent checkpointer
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+from langgraph.prebuilt import ToolNode,tools_condition
+from langchain_tavily import TavilySearch
+
 
 # ==========================================
 # 1. LOAD ENVIRONMENT VARIABLES
@@ -32,6 +35,22 @@ llm = ChatOpenAI(
     temperature=0,
     streaming=True
 )
+
+# ==========================================
+# 3. INITIALIZE TOOLS
+# ==========================================
+
+search_tool = TavilySearch(
+    max_results=5,
+    topic="general",
+    search_depth="basic"
+)
+
+tools = [search_tool]
+
+# Bind tools to the LLM
+llm_with_tools = llm.bind_tools(tools)
+
 
 
 # ==========================================
@@ -66,7 +85,7 @@ def chat_node(state: ChatState) -> ChatState:
 
     messages = [system_prompt] + state["messages"]
 
-    response = llm.invoke(messages)
+    response = llm_with_tools.invoke(messages)
 
     return {
         "messages": [response]
@@ -107,9 +126,19 @@ graph = StateGraph(ChatState)
 
 graph.add_node("chat_node", chat_node)
 
+# NEW: Tool execution node
+graph.add_node("tools", ToolNode(tools))
+
+# Workflow edges
 graph.add_edge(START, "chat_node")
 
-graph.add_edge("chat_node", END)
+# Decide whether to execute tools or finish
+graph.add_conditional_edges(
+    "chat_node",
+    tools_condition
+)
+
+graph.add_edge("tools", "chat_node")
 
 
 # ==========================================

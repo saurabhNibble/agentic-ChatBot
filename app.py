@@ -826,7 +826,12 @@ active_chat_id = st.session_state.active_chat_id
 config = {
     "configurable": {
         "thread_id": active_chat_id
-    }
+    },
+    "metadata": {
+        "chat_id": active_chat_id,
+        "application": "agentic-chatbot"
+    },
+    "run_name": "Chatbot Conversation"
 }
 
 

@@ -42,3 +42,8 @@ dist/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+#chatmemory files
+chat_memory.db
+chat_memory.db-shm
+chat_memory.db-wal
