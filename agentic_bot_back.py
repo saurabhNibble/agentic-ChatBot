@@ -2,6 +2,7 @@
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated
 from langgraph.graph.message import BaseMessage, add_messages
+from langchain_core.messages import SystemMessage
 
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
@@ -48,12 +49,28 @@ class ChatState(TypedDict):
 
 def chat_node(state: ChatState) -> ChatState:
 
-    response = llm.invoke(state["messages"])
+    system_prompt = SystemMessage(
+        content="""
+        You are an AI chatbot developed by Saurabh Yadav.
+
+        If anyone asks who built you, who created you,
+        or who developed you, respond:
+
+        "I was built by Saurabh Yadav."
+
+        Do not claim that someone else built you.
+
+        Answer other questions normally and helpfully.
+        """
+    )
+
+    messages = [system_prompt] + state["messages"]
+
+    response = llm.invoke(messages)
 
     return {
         "messages": [response]
     }
-
 
 # ==========================================
 # 5. SQLITE DATABASE CONNECTION
