@@ -1,67 +1,74 @@
 # Agentic ChatBot
 
-A production-style AI chatbot application built with Python, Streamlit, LangGraph, and LangChain. The system supports multi-threaded conversations, PDF-based knowledge retrieval, and tool-augmented responses using both local document context and external web search.
+<div align="center">
+
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.x-FF4B4B?logo=streamlit&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-Agent%20Workflow-4B8BF5)
+![FAISS](https://img.shields.io/badge/FAISS-Vector%20Search-00A7A7)
+![License](https://img.shields.io/badge/License-Unspecified-lightgray)
+
+</div>
+
+A Streamlit-powered AI assistant for multi-threaded chat, PDF-grounded document retrieval, and tool-augmented responses. The app combines LangGraph, LangChain, FAISS, SQLite, and an Ollama-compatible LLM to create a lightweight agentic workflow for conversational AI.
 
 ## Overview
 
-Agentic ChatBot is a lightweight conversational AI project designed for experimentation and practical use in document-grounded Q&A workflows. It combines:
+Agentic ChatBot is a practical AI application designed to help users:
 
-- a Streamlit-based user interface,
-- persistent conversation memory with SQLite,
-- a LangGraph agent workflow,
-- a FAISS vector store for uploaded PDF retrieval,
-- Tavily-powered web search for current or external information,
-- an Ollama-compatible local LLM backend.
+- hold multiple independent chat conversations,
+- upload and query PDF documents,
+- retrieve relevant passages using semantic search,
+- use Tavily for external web search when needed,
+- review and approve tool calls before execution through a human-in-the-loop flow.
 
-This project is intended to demonstrate how modern AI agents can orchestrate memory, RAG, and tool calling in a simple and deployable application.
-
-## Table of Contents
-
-- [Features](#features)
-- [Architecture](#architecture)
-- [Technology Stack](#technology-stack)
-- [Repository Structure](#repository-structure)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Running the Application](#running-the-application)
-- [Usage](#usage)
-- [Security and Operational Notes](#security-and-operational-notes)
-- [License](#license)
-- [Contact](#contact)
+The project is intended as a compact, developer-friendly example of an agentic system that mixes memory, retrieval, and tool usage in a real application.
 
 ## Features
 
-- Multi-threaded chat experience with independent conversation histories
-- Persistent thread metadata and checkpoints stored in SQLite
-- PDF upload and indexing for local RAG workflows
-- FAISS-powered semantic retrieval over uploaded documents
-- Web search integration through Tavily for external knowledge
-- Tool-augmented responses using a LangGraph workflow
-- Streamlit admin-like chat controls for renaming, switching, and deleting threads
-- Compatible with local or OpenAI-compatible LLM providers via Ollama
+- Multi-thread chat UI in Streamlit
+- Persistent conversation state and metadata via SQLite
+- PDF upload and indexing workflow for local RAG
+- FAISS vector search over uploaded documents
+- Tool-augmented LLM responses using LangGraph
+- Tavily web search for external or up-to-date information
+- Human approval step before executing certain tool calls
+- Rename, switch, and delete chat thread controls in the sidebar
+- Local model compatibility through Ollama and OpenAI-compatible endpoints
+
+## Demo
+
+```text
+1. Open the app in the browser.
+2. Create a chat thread from the sidebar.
+3. Upload a PDF and click "Add to knowledge base".
+4. Ask a question related to the uploaded document.
+5. The assistant retrieves the most relevant passages and answers using them.
+6. If the topic is outside the document context, it can use web search.
+7. When prompted, approve or reject tool execution before continuing.
+```
 
 ## Architecture
 
-The application follows a simple Agent + Tool + Memory architecture:
+The application follows a simple agent architecture with memory and retrieval:
 
-1. User input is submitted through the Streamlit UI.
-2. The active chat thread is resolved from SQLite metadata.
-3. The LangGraph agent prepares the system prompt and conversation history.
+1. The user interacts with the Streamlit UI.
+2. The active chat thread is loaded from SQLite metadata.
+3. The LangGraph agent composes the system prompt and the message history.
 4. The LLM decides whether to answer directly or call a tool.
-5. The `rag_tool` searches uploaded PDFs via FAISS when document-grounded answers are needed.
-6. The Tavily tool is used for current or external information.
-7. The final answer is streamed back to the interface and saved as part of the conversation state.
+5. `rag_tool` searches uploaded PDF content through FAISS when document-based answers are needed.
+6. Tavily search is used for fresh or external information.
+7. The final answer is streamed back to the user.
+8. The conversation is checkpointed for persistence across sessions.
 
 ```text
 User → Streamlit UI → LangGraph Agent → LLM
-                                ├── rag_tool (PDF retrieval)
-                                └── Tavily search (external information)
-                                      ↓
-                               SQLite memory
+                               ├── rag_tool (PDF retrieval)
+                               ├── Tavily Search (web knowledge)
+                               └── SQLite memory / thread metadata
 ```
 
-## Technology Stack
+## Tech Stack
 
 - Python 3.10+
 - Streamlit
@@ -71,39 +78,50 @@ User → Streamlit UI → LangGraph Agent → LLM
 - FastEmbed
 - PyPDF
 - SQLite
-- Ollama / OpenAI-compatible API
+- Ollama / OpenAI-compatible endpoints
 - Tavily Search
 - python-dotenv
 
-## Repository Structure
+## Project Structure
 
 ```text
 agentic-chatbot/
-├── app.py                     # Streamlit frontend and chat experience
-├── agentic_bot_back.py        # Agent workflow, tool definitions, and LLM integration
-├── rag_pipeline.py            # PDF ingestion, chunking, and document retrieval
-├── thread_db.py               # SQLite operations for thread management
+├── app.py                     # Streamlit chat frontend and approval flow
+├── agentic_bot_back.py        # LangGraph workflow, tool definitions, and model setup
+├── rag_pipeline.py            # PDF indexing, chunking, and document search logic
+├── thread_db.py               # SQLite helper functions for thread management
 ├── requirements.txt           # Python dependencies
 ├── readme.md                  # Project documentation
-├── .env                       # Local environment variables (not committed)
-├── chat_memory.db             # SQLite chat/checkpoint database
-├── indexed_files.json         # Hash-based registry for uploaded PDFs
-├── faiss_index/               # Local FAISS vector store files
-├── uploads/                   # Uploaded PDF documents
-├── set.pdf                    # Default local PDF used for initialization
-├── chat_bot_workflow.ipynb    # Exploratory notebook for workflow testing
-└── .gitignore                 # Excludes local runtime artifacts and sensitive files
+├── .env                       # Local environment variables
+├── chat_memory.db             # SQLite database for thread metadata and checkpoints
+├── indexed_files.json         # Registry for already-indexed PDFs
+├── faiss_index/               # FAISS vector store output
+├── uploads/                   # Uploaded PDF files
+├── set.pdf                    # Default PDF used during initialization
+├── chat_bot_workflow.ipynb    # Notebook for experimentation and workflow testing
+└── .gitignore                 # Local file exclusions
 ```
 
 ## Prerequisites
 
-Before running the application, ensure that you have:
+Before running the app, ensure you have:
 
 - Python 3.10 or newer
-- A working Ollama installation or OpenAI-compatible API endpoint
-- A valid Tavily API key
-- Internet access for external web search
-- A local environment capable of running vector embedding and document processing
+- An Ollama instance or another OpenAI-compatible API endpoint
+- A Tavily API key
+- Internet access for web search
+- Enough local storage for the FAISS index and uploaded PDFs
+
+## Environment Setup
+
+Create a `.env` file in the project root:
+
+```env
+OLLAMA_API_KEY=your_ollama_api_key
+TAVILY_API_KEY=your_tavily_api_key
+```
+
+If you use a custom endpoint or model, update the configuration in `agentic_bot_back.py` accordingly.
 
 ## Installation
 
@@ -114,42 +132,37 @@ git clone https://github.com/saurabhNibble/agentic-ChatBot.git
 cd agentic-ChatBot
 ```
 
-2. Create and activate a virtual environment:
+2. Create a virtual environment:
 
 ```bash
 python -m venv .venv
+```
+
+3. Activate the virtual environment:
+
+```bash
 # Windows
 .venv\Scripts\activate
+
 # macOS/Linux
 source .venv/bin/activate
 ```
 
-3. Install project dependencies:
+4. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Configuration
-
-Create a `.env` file in the project root with the following values:
-
-```env
-OLLAMA_API_KEY=your_ollama_api_key
-TAVILY_API_KEY=your_tavily_api_key
-```
-
-If you use a custom OpenAI-compatible model endpoint, update the `base_url` and model values in `agentic_bot_back.py` as required.
-
 ## Running the Application
 
-Start the Streamlit app:
+Start the app:
 
 ```bash
 streamlit run app.py
 ```
 
-After startup, open the local URL displayed in the terminal, typically:
+Then open the local URL shown in the terminal, typically:
 
 ```text
 http://localhost:8501
@@ -157,35 +170,51 @@ http://localhost:8501
 
 ## Usage
 
-1. Open the application in your browser.
-2. Use the sidebar to create a new chat thread or switch between existing ones.
-3. Upload one or more PDFs from the document section.
-4. Click `Add to knowledge base` to index the uploaded documents.
-5. Ask questions in natural language about the uploaded material.
-6. For questions outside the uploaded knowledge base, the assistant may use Tavily web search.
-7. Rename or delete chats as needed from the sidebar controls.
+1. Open the app in the browser.
+2. Create or switch to a chat thread from the sidebar.
+3. Upload one or more PDFs to add them to the document knowledge base.
+4. Click `Add to knowledge base` to index the files.
+5. Ask natural-language questions about the uploaded PDFs.
+6. If the request is not covered by the documents, the agent may use Tavily search.
+7. Review tool approvals when prompted before continuing.
+8. Rename or delete chats from the sidebar when needed.
 
-## Security and Operational Notes
+## Human-in-the-Loop Approval
 
-- Store secrets such as API keys only in `.env` files or secure secret managers.
-- Do not commit sensitive environment files to version control.
-- Validate third-party APIs and model endpoints before production use.
-- Monitor storage usage for FAISS index files and uploaded PDFs.
-- Treat uploaded PDFs as untrusted content; validate file types and sanitize inputs where applicable.
-- If you deploy this project externally, place it behind proper authentication and access controls.
+The user interface includes a safety/approval flow for tool execution. When the agent requests a tool, the app displays:
 
-## License
+- the tool name,
+- the arguments passed,
+- a “Approve” and “Reject” action set.
 
-This project does not currently include a license file. Before public or commercial use, add an appropriate open-source license such as MIT or Apache 2.0.
-
-## Contact
-
-Saurabh Yadav
-
-Project repository: https://github.com/saurabhNibble/agentic-ChatBot
+This helps provide explicit control before executing tool-based actions.
 
 ## Notes
 
-- The project automatically initializes a vector index from `set.pdf` if one does not already exist.
-- Duplicate PDFs are skipped using a SHA-256 registry stored in `indexed_files.json`.
-- Conversation checkpoints are stored in `chat_memory.db` to preserve thread state between app sessions.
+- The application builds a local FAISS index from `set.pdf` if it exists and no index is already present.
+- Duplicate PDF uploads are prevented using a hash-based registry in `indexed_files.json`.
+- Thread metadata and metadata history are stored in SQLite via `thread_db.py`.
+- Chat conversations are checkpointed in `chat_memory.db` so session state persists between app restarts.
+- This project is a useful base for learning how LLM agents, document retrieval, and tool calling can be assembled in a compact app.
+
+## Security and Operational Considerations
+
+- Keep API keys in a local `.env` file and never commit secrets to source control.
+- Validate uploaded files before processing them in production-grade environments.
+- Monitor FAISS index and uploaded document storage growth.
+- Use authentication and access control if deploying this app beyond a local environment.
+- Treat uploaded PDFs as untrusted content and apply validation where appropriate.
+
+## License
+
+This project does not currently include a license file. Add an appropriate open-source license before public or commercial distribution.
+
+## Screenshot / UI Preview
+
+The application is a lightweight chat interface with a sidebar for thread management and document upload. It supports persistent chat history and a human approval flow before tool execution.
+
+![App Preview](https://via.placeholder.com/1200x700?text=Agentic+ChatBot+Preview)
+
+## Author
+
+Saurabh Yadav
