@@ -1,3 +1,4 @@
+
 import os
 import sqlite3
 from typing import TypedDict, Annotated
@@ -8,13 +9,21 @@ from langgraph.graph import StateGraph, START
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.types import interrupt, Command
 
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import (
+    BaseMessage,
+    SystemMessage,
+    AIMessage,
+    ToolMessage,
+)
+
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
 
 from rag_pipeline import search_documents, initialize_pdf
+
 
 # ==========================================
 # 1. LOAD ENVIRONMENT VARIABLES
@@ -22,7 +31,7 @@ from rag_pipeline import search_documents, initialize_pdf
 
 load_dotenv()
 
-# Build the PDF index only if it doesn't exist yet
+# Build PDF index if it doesn't exist
 initialize_pdf()
 
 
@@ -46,21 +55,30 @@ llm = ChatOpenAI(
 @tool
 def rag_tool(query: str) -> str:
     """
-    Search the user's uploaded PDF documents and return the most
-    relevant passages with their page numbers. Use this first for
-    any question that could be answered by the documents.
+    Search uploaded PDF documents and return
+    relevant passages with their page numbers.
+    Use this for questions related to uploaded documents.
     """
+
     docs = search_documents(query)
 
     if not docs:
-        return "No relevant information found in the uploaded documents."
+        return "No relevant information found in uploaded documents."
 
     results = []
+
     for doc in docs:
-        source = os.path.basename(doc.metadata.get("source", "Unknown"))
+
+        source = os.path.basename(
+            doc.metadata.get("source", "Unknown")
+        )
+
         page = doc.metadata.get("page", "Unknown")
+
         results.append(
-            f"Source: {source}\nPage: {page}\nContent:\n{doc.page_content}"
+            f"Source: {source}\n"
+            f"Page: {page}\n"
+            f"Content:\n{doc.page_content}"
         )
 
     return "\n\n---\n\n".join(results)
@@ -86,89 +104,198 @@ class ChatState(TypedDict):
 
 
 # ==========================================
-# 5. CHATBOT NODE
+# 5. SYSTEM PROMPT
 # ==========================================
 
 SYSTEM_PROMPT = SystemMessage(
     content="""
 You are an AI chatbot developed by Saurabh Yadav.
 
-If anyone asks who built you, who created you, or who developed you,
-respond: "I was built by Saurabh Yadav."
-Do not claim that someone else built you.
+If anyone asks who built you, who created you,
+or who developed you, respond:
+"I was built by Saurabh Yadav."
 
 You have two tools:
-- rag_tool: searches the user's uploaded PDF documents. Use it first
-  for any question that could relate to the documents.
-- tavily_search: searches the web. Use it only for current events or
-  topics clearly not covered by the documents.
 
-When you answer from a PDF, mention the source file and page number.
-If rag_tool finds nothing relevant, say so before using web search.
-For greetings and general chat, answer normally without tools.
+1. rag_tool:
+   Searches the user's uploaded PDF documents.
+   Use it for questions related to uploaded documents.
+
+2. TavilySearch:
+   Searches the web.
+   Use it for current events or topics not covered
+   by the uploaded documents.
+
+When answering from a PDF, mention the source file
+and page number.
+
+For greetings and general conversation,
+respond normally without tools.
 """
 )
 
 
+# ==========================================
+# 6. CHATBOT NODE
+# ==========================================
+
 def chat_node(state: ChatState) -> ChatState:
+
     messages = [SYSTEM_PROMPT] + state["messages"]
+
     response = llm_with_tools.invoke(messages)
-    return {"messages": [response]}
+
+    return {
+        "messages": [response]
+    }
 
 
 # ==========================================
-# 6. SQLITE CHECKPOINTER
+# 7. HUMAN-IN-THE-LOOP NODE
 # ==========================================
 
-conn = sqlite3.connect("chat_memory.db", check_same_thread=False)
+tool_node = ToolNode(tools)
+
+
+def tools_with_approval(state: ChatState):
+
+    last_message = state["messages"][-1]
+
+    tool_calls = last_message.tool_calls
+
+    # Request human approval before tool execution
+    decision = interrupt({
+        "message": "The chatbot wants to execute the following tools.",
+        "tool_calls": [
+            {
+                "name": call["name"],
+                "args": call["args"],
+            }
+            for call in tool_calls
+        ],
+        "options": ["approve", "reject"],
+    })
+
+    # Reject tool execution
+    if decision != "approve":
+
+        return {
+            "messages": [
+                ToolMessage(
+                    content="The user rejected this tool execution.",
+                    tool_call_id=call["id"],
+                )
+                for call in tool_calls
+            ]
+        }
+
+    # Execute tools after approval
+    return tool_node.invoke(state)
+
+
+# ==========================================
+# 8. SQLITE CHECKPOINTER
+# ==========================================
+
+conn = sqlite3.connect(
+    "chat_memory.db",
+    check_same_thread=False
+)
 
 checkpoint = SqliteSaver(conn)
+
 checkpoint.setup()
 
 
 # ==========================================
-# 7. BUILD LANGGRAPH WORKFLOW
+# 9. BUILD LANGGRAPH WORKFLOW
 # ==========================================
 
 graph = StateGraph(ChatState)
 
 graph.add_node("chat_node", chat_node)
-graph.add_node("tools", ToolNode(tools))
+
+# HITL approval wrapper
+graph.add_node("tools", tools_with_approval)
 
 graph.add_edge(START, "chat_node")
-graph.add_conditional_edges("chat_node", tools_condition)
+
+graph.add_conditional_edges(
+    "chat_node",
+    tools_condition
+)
+
 graph.add_edge("tools", "chat_node")
 
 
 # ==========================================
-# 8. COMPILE CHATBOT
+# 10. COMPILE CHATBOT
 # ==========================================
 
-chatbot = graph.compile(checkpointer=checkpoint)
+chatbot = graph.compile(
+    checkpointer=checkpoint
+)
 
 
 # ==========================================
-# 9. DELETE CHAT HISTORY
+# 11. DELETE CHAT HISTORY
 # ==========================================
 
-def delete_chat_history(thread_id):
+def delete_chat_history(thread_id: str):
+
     checkpoint.delete_thread(thread_id)
 
 
 # ==========================================
-# 10. QUICK TEST
+# 12. QUICK TEST
 # ==========================================
 
 if __name__ == "__main__":
-    config = {"configurable": {"thread_id": "test_pdf"}}
+
+    config = {
+        "configurable": {
+            "thread_id": "test_pdf"
+        }
+    }
 
     result = chatbot.invoke(
-        {"messages": [{"role": "user", "content": "your PDF-specific question here"}]},
+        {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "What does my PDF say about machine learning?"
+                }
+            ]
+        },
         config=config,
     )
 
-    for m in result["messages"]:
-        calls = getattr(m, "tool_calls", None)
-        print(type(m).__name__, "|", calls if calls else "", "|", str(m.content)[:150])
+    # Check whether graph is interrupted
+    if result.get("__interrupt__"):
 
-    delete_chat_history("test_pdf")
+        print("\nHUMAN APPROVAL REQUIRED")
+
+        for intr in result["__interrupt__"]:
+            print(intr.value)
+
+        decision = input(
+            "\nEnter approve or reject: "
+        ).strip().lower()
+
+        # Resume the interrupted graph
+        result = chatbot.invoke(
+            Command(resume=decision),
+            config=config,
+        )
+
+    # Print conversation
+    for message in result["messages"]:
+
+        print(
+            type(message).__name__,
+            "|",
+            str(message.content)[:500]
+        )
+
+    # Uncomment to delete test conversation
+    # delete_chat_history("test_pdf")
