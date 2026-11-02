@@ -1,13 +1,21 @@
 
+import os
 import sqlite3
 import uuid
 from datetime import datetime
 
 
+APP_DATA_DIR = os.getenv(
+    "APP_DATA_DIR",
+    os.path.dirname(os.path.abspath(__file__))
+)
+os.makedirs(APP_DATA_DIR, exist_ok=True)
+
+
 class ThreadDatabase:
 
-    def __init__(self, db_name="chat_memory.db"):
-        self.db_name = db_name
+    def __init__(self, db_name=None):
+        self.db_name = db_name or os.path.join(APP_DATA_DIR, "chat_memory.db")
         self.create_table()
 
     def get_connection(self):

@@ -197,8 +197,14 @@ def tools_with_approval(state: ChatState):
 # 8. SQLITE CHECKPOINTER
 # ==========================================
 
+APP_DATA_DIR = os.getenv(
+    "APP_DATA_DIR",
+    os.path.dirname(os.path.abspath(__file__))
+)
+os.makedirs(APP_DATA_DIR, exist_ok=True)
+
 conn = sqlite3.connect(
-    "chat_memory.db",
+    os.path.join(APP_DATA_DIR, "chat_memory.db"),
     check_same_thread=False
 )
 

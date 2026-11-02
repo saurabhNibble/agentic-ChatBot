@@ -168,6 +168,36 @@ Then open the local URL shown in the terminal, typically:
 http://localhost:8501
 ```
 
+## Running with Docker
+
+1. Copy `.env.example` to `.env` and set `OLLAMA_API_KEY` and `TAVILY_API_KEY`.
+2. Build the image and start the app:
+
+```bash
+docker compose up --build
+```
+
+Open [http://localhost:8501](http://localhost:8501). Docker Compose stores chat history, uploaded PDFs, and the FAISS index in the `chatbot-data` named volume, so this data remains available after the container is recreated. `docker compose down` keeps the volume; `docker compose down --volumes` removes it and permanently deletes that data.
+
+The Docker image excludes local secrets and runtime data. An optional root-level `set.pdf` is included in the image and indexed on first startup if no FAISS index exists yet.
+
+## Continuous integration and image publishing
+
+The GitHub Actions workflow checks Python syntax and builds the Docker image for pull requests and pushes to `main` or version tags matching `v*.*.*`. On pushes to `main` and matching version tags, it also publishes the image to GitHub Container Registry (`ghcr.io/<owner>/<repository>`) using the repository's `GITHUB_TOKEN`. The image name is normalized to lowercase. Published images include SBOM and provenance attestations. A successful push to `main` then deploys that exact commit image to the configured Ubuntu EC2 instance over SSH.
+
+### Configure EC2 deployment
+
+1. Install Docker Engine and the Docker Compose plugin on the EC2 instance. Ensure the SSH user can run Docker commands without `sudo`. The deployment waits up to five minutes for Streamlit's health check before it reports success.
+2. Create `~/agentic-chatbot/.env` on the instance with `OLLAMA_API_KEY` and `TAVILY_API_KEY`; restrict it to the SSH user (`chmod 600`). The workflow deliberately does not copy or overwrite this secrets file. The Compose data volume persists chat history, uploaded files, and the FAISS index across deployments.
+3. Add these repository Actions secrets:
+   - `EC2_HOST`: the instance's public DNS name or IP.
+   - `EC2_USER`: the SSH user (commonly `ubuntu`).
+   - `EC2_SSH_PRIVATE_KEY`: the private key for that user's authorized SSH key.
+   - `EC2_KNOWN_HOSTS`: the verified host-key entry for the EC2 host. Obtain it with `ssh-keyscan -H <EC2_PUBLIC_DNS>` and verify its fingerprint through a trusted channel before saving it.
+4. Ensure the GHCR package grants this repository's Actions workflow access to pull it. The deployment uses the short-lived `GITHUB_TOKEN` with `packages: read`; no long-lived registry token is stored on the instance.
+
+The EC2 security group must allow SSH from the runner. GitHub-hosted runner addresses change, so do not open SSH to `0.0.0.0/0`; use a runner with static egress IPs or consider AWS Systems Manager for a more restricted deployment path. For web traffic, configure HTTPS through an Application Load Balancer or reverse proxy and avoid exposing Streamlit's port `8501` directly to the public internet.
+
 ## Usage
 
 1. Open the app in the browser.

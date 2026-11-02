@@ -3,16 +3,22 @@ import json
 import hashlib
 
 from fastembed import TextEmbedding
+from dotenv import load_dotenv
 from langchain_core.embeddings import Embeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
+load_dotenv()
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INDEX_PATH = os.path.join(BASE_DIR, "faiss_index")
+APP_DATA_DIR = os.getenv("APP_DATA_DIR", BASE_DIR)
+os.makedirs(APP_DATA_DIR, exist_ok=True)
+
+INDEX_PATH = os.path.join(APP_DATA_DIR, "faiss_index")
 PDF_PATH = os.path.join(BASE_DIR, "set.pdf")
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-REGISTRY_PATH = os.path.join(BASE_DIR, "indexed_files.json")
+UPLOAD_DIR = os.path.join(APP_DATA_DIR, "uploads")
+REGISTRY_PATH = os.path.join(APP_DATA_DIR, "indexed_files.json")
 
 
 # 1. Local embeddings (no API key, runs inside the app)
