@@ -1,3 +1,4 @@
+
 name: CI/CD
 
 on:
@@ -107,11 +108,34 @@ jobs:
           EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
         run: |
+          set -euo pipefail
+
+          : "${EC2_SSH_PRIVATE_KEY:?SSH private key is missing}"
+          : "${EC2_KNOWN_HOSTS:?Known hosts is missing}"
+
           install -m 700 -d ~/.ssh
           printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$EC2_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
+
+      - name: Test SSH connection
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+
+          : "${EC2_HOST:?EC2_HOST is missing}"
+          : "${EC2_USER:?EC2_USER is missing}"
+
+          ssh -i ~/.ssh/id_ed25519 \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$EC2_USER@$EC2_HOST" \
+            "echo 'SSH connection successful!'"
 
       - name: Copy Compose configuration to EC2
         env:
@@ -119,6 +143,7 @@ jobs:
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           set -euo pipefail
+
           SSH_OPTIONS=(
             -i "$HOME/.ssh/id_ed25519"
             -o BatchMode=yes
@@ -126,8 +151,12 @@ jobs:
             -o StrictHostKeyChecking=yes
             -o "UserKnownHostsFile=$HOME/.ssh/known_hosts"
           )
-          ssh "${SSH_OPTIONS[@]}" "$EC2_USER@$EC2_HOST" 'mkdir -p "$HOME/agentic-chatbot"'
-          scp "${SSH_OPTIONS[@]}" compose.yaml "$EC2_USER@$EC2_HOST:agentic-chatbot/compose.yaml"
+
+          ssh "${SSH_OPTIONS[@]}" "$EC2_USER@$EC2_HOST" \
+            'mkdir -p "$HOME/agentic-chatbot"'
+
+          scp "${SSH_OPTIONS[@]}" compose.yaml \
+            "$EC2_USER@$EC2_HOST:agentic-chatbot/compose.yaml"
 
       - name: Pull and restart application on EC2
         env:
@@ -139,8 +168,13 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+
+          : "${EC2_HOST:?EC2_HOST is missing}"
+          : "${EC2_USER:?EC2_USER is missing}"
+
           IMAGE_NAME="ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
           IMAGE="$IMAGE_NAME:sha-$GITHUB_SHA"
+
           SSH_OPTIONS=(
             -i "$HOME/.ssh/id_ed25519"
             -o BatchMode=yes
